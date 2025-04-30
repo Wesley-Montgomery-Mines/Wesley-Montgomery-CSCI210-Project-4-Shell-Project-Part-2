@@ -5,15 +5,15 @@
 #include <string.h>
 #include <signal.h>
 
-// This will define the structure of a message exchanged between users
+// This will define the structure used for inter-process communication
 struct message
 {
-	char source[50]; // This is the username of the sender
-	char target[50]; // This is the username of the recipient (FIFO name)
-	char msg[200];	 // This is the the message content
+	char source[50]; // This is the sender username
+	char target[50]; // This is the target username and FIFO name
+	char msg[200];	 // This is the message body
 };
 
-// This will terminate the server process when it gets the signal
+// This will terminate the server process on signals like Ctrl + c
 void terminate(int sig)
 {
 	printf("Exiting....\n");
@@ -23,66 +23,66 @@ void terminate(int sig)
 
 int main()
 {
-	int server, target, dummyfd;
-	struct message req;
+	int server;			// This is the file descriptor for reading from server FIFO
+	int target;			// This is the file descriptor for writing to target FIFO
+	int dummyfd;		// This is the dummy write-end to keep serverFIFO open
+	struct message req; // This is the incoming request structure
 
-	// This will ignore broken pipe signals
+	// This will ignore SIGPIPE to avoid crashing if client closes its FIFO unexpectedly
 	signal(SIGPIPE, SIG_IGN);
 
-	// This will register handler to clean up on Ctrl + C
+	// This will handle interrupt signals to allow graceful shutdown
 	signal(SIGINT, terminate);
 
-	// This will open server FIFO for reading messages sent from clients
+	// This will open the server FIFO in read-only mode
 	server = open("serverFIFO", O_RDONLY);
-	if (server == -1)
+	if (server < 0)
 	{
 		perror("Failed to open serverFIFO for reading");
-		exit(EXIT_FAILURE);
+		return 1;
 	}
 
-	// This will open dummy write end to keep the FIFO open when no clients are writing
+	// This is the open dummy write-end so reads don't return 0 when no clients are writing
 	dummyfd = open("serverFIFO", O_WRONLY);
-	if (dummyfd == -1)
+	if (dummyfd < 0)
 	{
-		perror("Failed to open dummy write-end of serverFIFO");
+		perror("Failed to open dummy write end of serverFIFO");
 		close(server);
-		exit(EXIT_FAILURE);
+		return 1;
 	}
 
-	// This will continuously process incoming messages from clients
+	// This is the server loop to continuously process incoming requests
 	while (1)
 	{
-		// This will read a full message structure from the FIFO
-		if (read(server, &req, sizeof(struct message)) != sizeof(struct message))
+		// This will read the full message from the FIFO
+		if (read(server, &req, sizeof(req)) <= 0)
 		{
-			continue; // This will skip the iteration if there is an incomplete or bad read
+			continue; // This will skip if read fails or is incomplete
 		}
 
-		// This will display info for logging and debugging
+		// This will print request details for logging and debugging
 		printf("Received a request from %s to send the message \"%s\" to %s.\n",
-			req.source, req.msg, req.target);
+				req.source, req.msg, req.target);
 
-		// This will check if the recipient's FIFO exists before writing to it
-		if (access(req.target, F_OK) != 0)
+		// This will open the target user's FIFO in write-only mode
+		target = open(req.target, O_WRONLY);
+		if (target < 0)
 		{
-			fprintf(stderr, "Target FIFO %s not found. Skipping.\n", req.target);
+			perror("Failed to open target FIFO");
 			continue;
 		}
 
-		// This will open recipient FIFO and send the message structure
-		target = open(req.target, O_WRONLY);
-		if (target != -1)
+		// This will write the message structure to the target's FIFO
+		if (write(target, &req, sizeof(req)) < 0)
 		{
-			write(target, &req, sizeof(struct message));
-			close(target);
+			perror("Failed to write to target FIFO");
 		}
-		else
-		{
-			perror("Failed to open target FIFO");
-		}
+
+		// This will close the target FIFO
+		close(target);
 	}
 
-	// This will clean up FIFO file descriptors
+	// This is just the cleanup
 	close(server);
 	close(dummyfd);
 	return 0;
