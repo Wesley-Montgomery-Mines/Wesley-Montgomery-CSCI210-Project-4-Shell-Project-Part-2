@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -5,56 +6,55 @@
 #include <string.h>
 #include <signal.h>
 
-// Message struct for inter-user communication
 struct message {
-    char source[50];
-    char target[50];
-    char msg[200];
+	char source[50];
+	char target[50]; 
+	char msg[200]; // message body
 };
 
-// Signal handler to exit cleanly
 void terminate(int sig) {
-    printf("Exiting....\n");
-    fflush(stdout);
-    exit(0);
+	printf("Exiting....\n");
+	fflush(stdout);
+	exit(0);
 }
 
 int main() {
-    int server;      // FIFO descriptor for reading messages
-    int target;      // Target FIFO descriptor
-    int dummyfd;     // Dummy descriptor to prevent EOF
-    struct message req;
+	int server;
+	int target;
+	int dummyfd;
+	struct message req;
+	signal(SIGPIPE,SIG_IGN);
+	signal(SIGINT,terminate);
+	server = open("serverFIFO",O_RDONLY);
+	dummyfd = open("serverFIFO",O_WRONLY);
 
-    signal(SIGPIPE, SIG_IGN);    // Ignore SIGPIPE
-    signal(SIGINT, terminate);   // Handle Ctrl+C
-
-    // Open server FIFO for reading and writing
-    server = open("serverFIFO", O_RDONLY);
-    dummyfd = open("serverFIFO", O_WRONLY);  // Keeps FIFO open
-
-    while (1) {
-		// TODO:
-		// read requests from serverFIFO
-        if (read(server, &req, sizeof(struct message)) != sizeof(struct message)) {
-            continue;
-        }
-
-        // Print the received request
-        printf("Received a request from %s to send the message %s to %s.\n",req.source, req.msg, req.target);
+	while (1) {
+				// Read the message from the server FIFO
+		if (read(server, &req, sizeof(req)) <= 0) {
+		    continue;
+		}
 		
-		// TODO:
-		// open target FIFO and write the whole message struct to the target FIFO
-		// close target FIFO after writing the message
-        // Open target user's FIFO and send the message
-        target = open(req.target, O_WRONLY);
-        if (target >= 0) {
-            write(target, &req, sizeof(struct message));
-            close(target);
-        }
-    }
+		printf("Received a request from %s to send the message %s to %s.\n", req.source, req.msg, req.target);
+		
+		// Send the message to the target FIFO
+		target = open(req.target, O_WRONLY);
+		if (target < 0) {
+		    perror("server: failed to open target FIFO");
+		    continue;
+		}
+		
+		write(target, &req, sizeof(req));
+		close(target);
 
-    // Cleanup
-    close(server);
-    close(dummyfd);
-    return 0;
+
+
+
+
+
+
+	}
+	close(server);
+	close(dummyfd);
+	return 0;
 }
+
