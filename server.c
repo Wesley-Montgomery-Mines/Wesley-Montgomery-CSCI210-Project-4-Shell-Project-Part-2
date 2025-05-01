@@ -5,51 +5,56 @@
 #include <string.h>
 #include <signal.h>
 
-// This will define the structure used for inter-process communication
-struct message{
-	char source[50]; // This is the sender username
-	char target[50]; // This is the target username and FIFO name
-	char msg[200];	 // This is the message body
+// Message struct for inter-user communication
+struct message {
+    char source[50];
+    char target[50];
+    char msg[200];
 };
 
-// This will terminate the server process on signals like Ctrl + c
-void terminate(int sig){
-	printf("Exiting....\n");
-	fflush(stdout);
-	exit(0);
+// Signal handler to exit cleanly
+void terminate(int sig) {
+    printf("Exiting....\n");
+    fflush(stdout);
+    exit(0);
 }
 
-// Entry point for the server process
-int main(){
-	int server;			// This is the file descriptor for reading from server FIFO
-	int target;			// This is the file descriptor for writing to target FIFO
-	int dummyfd;		// This is the dummy write-end to keep serverFIFO open
-	struct message req; // This is the incoming request structure
+int main() {
+    int server;      // FIFO descriptor for reading messages
+    int target;      // Target FIFO descriptor
+    int dummyfd;     // Dummy descriptor to prevent EOF
+    struct message req;
 
-	// This will ignore SIGPIPE to avoid crashing if client closes its FIFO unexpectedly
-	signal(SIGPIPE, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN);    // Ignore SIGPIPE
+    signal(SIGINT, terminate);   // Handle Ctrl+C
 
-	// This will handle interrupt signals to allow graceful shutdown
-	signal(SIGINT, terminate);
-	server = open("serverFIFO",O_RDONLY);
-	dummyfd = open("serverFIFO",O_WRONLY);
+    // Open server FIFO for reading and writing
+    server = open("serverFIFO", O_RDONLY);
+    dummyfd = open("serverFIFO", O_WRONLY);  // Keeps FIFO open
 
-	// This is the server loop to continuously process incoming requests
-	while (1){
-		// This will read the full message from the FIFO
-		ssize_t read_bytes = read(server, &req, sizeof(req));
-		(void)read_bytes;
+    while (1) {
+		// TODO:
+		// read requests from serverFIFO
+        if (read(server, &req, sizeof(struct message)) != sizeof(struct message)) {
+            continue;
+        }
 
-		// This will print request details for logging and debugging
-		printf("Received a request from %s to send the message \"%s\" to %s.\n",req.source, req.msg, req.target);
+        // Print the received request
+        printf("Received a request from %s to send the message %s to %s.\n",req.source, req.msg, req.target);
+		
+		// TODO:
+		// open target FIFO and write the whole message struct to the target FIFO
+		// close target FIFO after writing the message
+        // Open target user's FIFO and send the message
+        target = open(req.target, O_WRONLY);
+        if (target >= 0) {
+            write(target, &req, sizeof(struct message));
+            close(target);
+        }
+    }
 
-		target = open(req.target, O_WRONLY);
-		write(target, &req, sizeof(req));
-		close(target);
-	}
-
-	// This is just the cleanup
-	close(server);
-	close(dummyfd);
-	return 0;
+    // Cleanup
+    close(server);
+    close(dummyfd);
+    return 0;
 }
